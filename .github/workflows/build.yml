@@ -1,0 +1,33 @@
+name: Build APK
+
+on:
+  workflow_dispatch: # 手动触发
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup JDK
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Change package name
+        run: |
+          sed -i 's/eu\.faircode\.netguard/eu.faircode.netguard.none/g' app/build.gradle
+          sed -i 's/eu\.faircode\.netguard/eu.faircode.netguard.none/g' app/src/main/AndroidManifest.xml
+
+      - name: Build Release APK
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: ReNetGuard-APK
+          path: app/build/outputs/apk/release/*.apk
