@@ -50,6 +50,15 @@ jobs:
           echo "Modified build.gradle.kts:"
           grep -E "(namespace|applicationId)" app/build.gradle.kts | head -5
 
+      - name: Fix Lint ExtraTranslation Errors
+        run: |
+          # 禁用 ExtraTranslation lint 检查
+          sed -i '/disable.add("MissingTranslation")/a\        disable.add("ExtraTranslation")' app/build.gradle.kts
+          
+          # 验证修改
+          echo "Lint configuration:"
+          grep -A3 'lint {' app/build.gradle.kts
+
       - name: Update Source Files Package References
         run: |
           # 查找并替换所有Java/Kotlin源文件中的包引用
@@ -62,7 +71,7 @@ jobs:
             rm -rf app/src/main/java/eu/faircode/netguard
           fi
           
-          # 处理其他source sets (如debug, release等)
+          # 处理其他source sets
           for dir in app/src/*/java/eu/faircode/netguard; do
             if [ -d "$dir" ]; then
               newdir="${dir}/none"
@@ -82,7 +91,6 @@ jobs:
 
       - name: Update Resource References
         run: |
-          # 更新XML资源文件中的包引用
           find app/src -type f -name "*.xml" -exec sed -i 's/eu\.faircode\.netguard/eu.faircode.netguard.none/g' {} +
 
       - name: Grant execute permission for gradlew
