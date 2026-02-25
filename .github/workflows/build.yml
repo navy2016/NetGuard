@@ -100,7 +100,7 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
-          ./gradlew assembleRelease \
+          ./gradlew :app:assembleRelease \
             -Pandroid.injected.build.abi=arm64-v8a,armeabi-v7a,x86,x86_64 \
             --no-daemon \
             --stacktrace
@@ -119,4 +119,3 @@ jobs:
           name: build-reports
           path: app/build/reports/
           retention-days: 7
-
