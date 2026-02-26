@@ -90,11 +90,7 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Disable Lint Errors
-        run: |
-          echo "android.lint.suppressExtraTranslation=true" >> gradle.properties
-          echo "android.lint.suppressMissingTranslation=true" >> gradle.properties
-     
+      
       - name: Build Release APK
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
@@ -102,10 +98,16 @@ jobs:
         run: |
           ./gradlew :app:assembleRelease \
             -Pandroid.injected.build.abi=arm64-v8a,armeabi-v7a,x86,x86_64 \
-            --build-cache \
+            --x lintVitalRelease \
+            --x lint \
             --no-daemon \
             --stacktrace
-
+       
+      - name: Disable Lint Errors
+        run: |
+          echo "android.lint.suppressExtraTranslation=true" >> gradle.properties
+          echo "android.lint.suppressMissingTranslation=true" >> gradle.properties
+     
       - name: Setup Signing
         id: signing
         run: |
