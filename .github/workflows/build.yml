@@ -96,16 +96,27 @@ jobs:
           # 创建输出目录
           mkdir -p app/build/outputs/apk/release
           
+          # 查找 apksigner
+          APK_SIGNER=$(find ${ANDROID_HOME}/build-tools -name "apksigner" -type f | sort -V | tail -1)
+          if [ -z "$APK_SIGNER" ]; then
+            echo "Error: apksigner not found"
+            exit 1
+          fi
+          echo "Using apksigner: $APK_SIGNER"
+          
           # 签名 APK
           SIGNED_APK="app/build/outputs/apk/release/app-release-signed.apk"
           
-          ${ANDROID_HOME}/build-tools/33.0.0/apksigner sign \
+          "$APK_SIGNER" sign \
             --ks "app/$STORE_FILE" \
             --ks-key-alias "$KEY_ALIAS" \
             --ks-pass pass:"$STORE_PASSWORD" \
             --key-pass pass:"$KEY_PASSWORD" \
             --out "$SIGNED_APK" \
             "$UNSIGNED_APK"
+          
+          # 验证签名
+          "$APK_SIGNER" verify -v "$SIGNED_APK"
           
           echo "APK signed successfully: $SIGNED_APK"
           ls -lh app/build/outputs/apk/release/
@@ -120,7 +131,6 @@ jobs:
       - name: Cleanup Keystore
         if: always()
         run: |
-          # 从配置中提取文件名并删除
           STORE_FILE=$(echo "${{ secrets.SIGNING_CONFIG }}" | grep -o 'storeFile=[^ ]*' | cut -d'=' -f2)
           rm -f "app/$STORE_FILE"
 
@@ -131,4 +141,3 @@ jobs:
           name: build-reports
           path: app/build/reports/
           retention-days: 7
-
