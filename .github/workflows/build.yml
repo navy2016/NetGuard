@@ -172,11 +172,24 @@ jobs:
       - name: Cleanup Keystore
         if: always()
         run: |
-          rm -f "app/${{ steps.signing.outputs.store_file }}"
-          # 恢复原始 gradle.properties
-          if [ -f gradle.properties.backup ]; then
-            mv gradle.properties.backup gradle.properties
+          STORE_FILE="${{ steps.signing.outputs.store_file }}"
+          
+          # 安全检查：防止删除整个目录
+          if [ -z "$STORE_FILE" ] || [ "$STORE_FILE" = "." ] || [ "$STORE_FILE" = ".." ] || [ "$STORE_FILE" = "/" ]; then
+            echo "⚠️  Invalid or empty store file name, skipping keystore cleanup"
+            exit 0
           fi
+          
+          KEYSTORE_PATH="app/$STORE_FILE"
+          
+          # 确保是文件而不是目录
+          if [ -f "$KEYSTORE_PATH" ]; then
+            rm -f "$KEYSTORE_PATH"
+            echo "✅ Keystore file cleaned up: $KEYSTORE_PATH"
+          else
+            echo "ℹ️  No keystore file to clean up at: $KEYSTORE_PATH"
+          fi
+
 
       - name: Upload Build Reports
         if: failure()
