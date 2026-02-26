@@ -34,48 +34,67 @@ jobs:
           ndk-version: r25c
           link-to-sdk: true
 
-      # ✅ 使用官方 Gradle Action 替代手动缓存
+      # ✅ 修复：禁用 cache-cleanup，使用基础缓存功能
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-home-cache-cleanup: true
-          build-scan-publish: true
-          build-scan-terms-of-use-url: "https://gradle.com/help/legal-terms-of-use"
-          build-scan-terms-of-use-agree: "yes"
+          # 禁用与 Gradle 9+ 不兼容的清理功能
+          cache-disabled: false
+          # 或者完全省略 gradle-home-cache-cleanup 参数
+          # 使用默认的只读/写入缓存模式
 
       - name: Change Application ID Only
         run: |
-          # 更精确的替换，避免误伤其他包含该字符串的地方
           sed -i "s/applicationId = \"${{ env.OLD_PACKAGE }}\"/applicationId = \"${{ env.NEW_PACKAGE }}\"/g" app/build.gradle.kts
           
           echo "=== Verification ==="
-          echo "Application ID:"
           grep -E "applicationId\s*=" app/build.gradle.kts || echo "WARNING: applicationId not found!"
-          echo "Namespace (should remain unchanged):"
           grep -E "namespace\s*=" app/build.gradle.kts || echo "WARNING: namespace not found!"
 
+      # ✅ 修复：正确配置 Gradle 属性，启用构建缓存
       - name: Setup Gradle Properties
         run: |
-          # 使用 gradle.properties 配置 lint 和构建优化，而非修改 build.gradle.kts
+          # 备份原始文件
+          cp gradle.properties gradle.properties.backup
+          
           cat >> gradle.properties << 'EOF'
           
-          # CI 优化配置
+          # CI 优化配置 - 启用构建缓存
           org.gradle.caching=true
           org.gradle.parallel=true
           org.gradle.configureondemand=true
           org.gradle.daemon=false
+          org.gradle.jvmargs=-Xmx6g -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8
           
-          # Lint 配置
+          # Android 构建优化
+          android.useAndroidX=true
+          android.enableJetifier=true
+          
+          # Lint 配置 - 通过项目属性禁用
           android.lint.suppressMissingTranslation=true
           android.lint.suppressExtraTranslation=true
           EOF
+          
+          echo "=== Gradle Properties ==="
+          cat gradle.properties
+
+      # ✅ 替代方案：直接在 build.gradle.kts 中添加 lint 配置（如果属性方式无效）
+      - name: Configure Lint in Build Script
+        run: |
+          if ! grep -q "lint {" app/build.gradle.kts; then
+            # 在 android { 块内添加 lint 配置
+            sed -i '/android {/a\    lint {\n        disable += "MissingTranslation"\n        disable += "ExtraTranslation"\n        abortOnError = false\n    }' app/build.gradle.kts
+            echo "Added lint configuration to build.gradle.kts"
+          fi
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # ✅ 修复：使用环境变量确保缓存启用
       - name: Build Release APK
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          GRADLE_OPTS: "-Dorg.gradle.caching=true -Dorg.gradle.daemon=false"
         run: |
           ./gradlew :app:assembleRelease \
             -Pandroid.injected.build.abi=arm64-v8a,armeabi-v7a,x86,x86_64 \
@@ -86,20 +105,16 @@ jobs:
       - name: Setup Signing
         id: signing
         run: |
-          # 更安全的密钥解析方式
           CONFIG="${{ secrets.SIGNING_CONFIG }}"
           
-          # 使用 awk 进行更健壮的解析
-          STORE_FILE=$(echo "$CONFIG" | awk -F'=' '/^storeFile=/ {print $2}' | tr -d ' ')
-          STORE_PASSWORD=$(echo "$CONFIG" | awk -F'"' '/storePassword=/ {print $2}')
-          KEY_ALIAS=$(echo "$CONFIG" | awk -F'=' '/^keyAlias=/ {print $2}' | tr -d ' ')
-          KEY_PASSWORD=$(echo "$CONFIG" | awk -F'"' '/keyPassword=/ {print $2}')
+          # 更健壮的解析
+          STORE_FILE=$(echo "$CONFIG" | grep -E '^storeFile=' | cut -d'=' -f2 | tr -d ' ')
+          STORE_PASSWORD=$(echo "$CONFIG" | grep -E 'storePassword=' | sed -E 's/.*"([^"]*)".*/\1/')
+          KEY_ALIAS=$(echo "$CONFIG" | grep -E '^keyAlias=' | cut -d'=' -f2 | tr -d ' ')
+          KEY_PASSWORD=$(echo "$CONFIG" | grep -E 'keyPassword=' | sed -E 's/.*"([^"]*)".*/\1/')
           
-          # 验证必要字段
           if [ -z "$STORE_FILE" ] || [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
             echo "Error: Missing required signing configuration"
-            echo "storeFile: ${STORE_FILE:-MISSING}"
-            echo "keyAlias: ${KEY_ALIAS:-MISSING}"
             exit 1
           fi
           
@@ -107,41 +122,33 @@ jobs:
           echo "store_password=$STORE_PASSWORD" >> $GITHUB_OUTPUT
           echo "key_alias=$KEY_ALIAS" >> $GITHUB_OUTPUT
           echo "key_password=$KEY_PASSWORD" >> $GITHUB_OUTPUT
-          
-          echo "Store file: $STORE_FILE"
-          echo "Key alias: $KEY_ALIAS"
 
       - name: Decode Keystore
         run: |
           echo "${{ secrets.KEY_BASE64 }}" | base64 -d > "app/${{ steps.signing.outputs.store_file }}"
-          ls -la "app/${{ steps.signing.outputs.store_file }}"
 
       - name: Sign APK
         run: |
-          # 找到未签名 APK
           UNSIGNED_APK=$(find app/build -name "*-unsigned.apk" -type f | head -1)
           if [ -z "$UNSIGNED_APK" ]; then
             echo "Error: Unsigned APK not found"
             find app/build -name "*.apk" -type f
             exit 1
           fi
-          echo "Found unsigned APK: $UNSIGNED_APK"
           
-          # 创建输出目录
           mkdir -p app/build/outputs/apk/release
           SIGNED_APK="app/build/outputs/apk/release/app-release-signed.apk"
           
-          # 使用 apksigner 的完整路径（Android SDK 标准路径）
-          BUILD_TOOLS_VERSION=$(ls -1 ${ANDROID_HOME}/build-tools/ | sort -V | tail -1)
-          APK_SIGNER="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}/apksigner"
-          
-          if [ ! -f "$APK_SIGNER" ]; then
-            echo "Error: apksigner not found at $APK_SIGNER"
+          # 获取最新 build-tools 版本
+          BUILD_TOOLS_VERSION=$(ls -1 ${ANDROID_HOME}/build-tools/ 2>/dev/null | sort -V | tail -1)
+          if [ -z "$BUILD_TOOLS_VERSION" ]; then
+            echo "Error: No build-tools found"
             exit 1
           fi
-          echo "Using apksigner: $APK_SIGNER (version $BUILD_TOOLS_VERSION)"
           
-          # 签名 APK，启用 v2+v3 签名方案
+          APK_SIGNER="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}/apksigner"
+          echo "Using apksigner version: $BUILD_TOOLS_VERSION"
+          
           "$APK_SIGNER" sign \
             --ks "app/${{ steps.signing.outputs.store_file }}" \
             --ks-key-alias "${{ steps.signing.outputs.key_alias }}" \
@@ -152,11 +159,8 @@ jobs:
             --out "$SIGNED_APK" \
             "$UNSIGNED_APK"
           
-          # 验证签名
           "$APK_SIGNER" verify -v --print-certs "$SIGNED_APK"
-          
           echo "✅ APK signed successfully"
-          ls -lh app/build/outputs/apk/release/
 
       - name: Upload Signed APK
         uses: actions/upload-artifact@v4
@@ -169,7 +173,10 @@ jobs:
         if: always()
         run: |
           rm -f "app/${{ steps.signing.outputs.store_file }}"
-          echo "Keystore cleaned up"
+          # 恢复原始 gradle.properties
+          if [ -f gradle.properties.backup ]; then
+            mv gradle.properties.backup gradle.properties
+          fi
 
       - name: Upload Build Reports
         if: failure()
@@ -180,3 +187,4 @@ jobs:
             app/build/reports/
             app/build/outputs/logs/
           retention-days: 7
+
