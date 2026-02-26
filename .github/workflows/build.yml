@@ -45,10 +45,8 @@ jobs:
           OLD_ID="eu.faircode.netguard"
           NEW_ID="eu.faircode.netguard.none"
           
-          # 只改 applicationId，不改 namespace
           sed -i "s/applicationId = \"${OLD_ID}\"/applicationId = \"${NEW_ID}\"/g" app/build.gradle.kts
           
-          # 验证修改
           echo "=== Application ID ==="
           grep "applicationId" app/build.gradle.kts
           echo "=== Namespace (unchanged) ==="
@@ -74,22 +72,57 @@ jobs:
             --no-daemon \
             --stacktrace
 
-      - name: Debug APK Output  # 调试步骤，确认路径
-        if: always()
+      - name: Parse Signing Config & Sign APK
         run: |
-          echo "=== Current Directory ==="
-          pwd
-          echo "=== APK Output Directory Structure ==="
-          find app/build/outputs -type d 2>/dev/null | head -20 || echo "outputs dir not found"
-          echo "=== All APK Files ==="
-          find app/build -name "*.apk" -type f 2>/dev/null || echo "No APK found"
+          # 解析 SIGNING_CONFIG
+          CONFIG="${{ secrets.SIGNING_CONFIG }}"
+          
+          # 提取各字段
+          STORE_FILE=$(echo "$CONFIG" | grep -o 'storeFile=[^ ]*' | cut -d'=' -f2)
+          STORE_PASSWORD=$(echo "$CONFIG" | grep -o 'storePassword="[^"]*"' | cut -d'"' -f2)
+          KEY_ALIAS=$(echo "$CONFIG" | grep -o 'keyAlias=[^ ]*' | cut -d'=' -f2)
+          KEY_PASSWORD=$(echo "$CONFIG" | grep -o 'keyPassword="[^"]*"' | cut -d'"' -f2)
+          
+          echo "Store file: $STORE_FILE"
+          echo "Key alias: $KEY_ALIAS"
+          
+          # 解码密钥文件
+          echo "${{ secrets.KEY_BASE64 }}" | base64 -d > "app/$STORE_FILE"
+          
+          # 找到未签名 APK
+          UNSIGNED_APK=$(find app/build -name "*-unsigned.apk" -type f | head -1)
+          echo "Found unsigned APK: $UNSIGNED_APK"
+          
+          # 创建输出目录
+          mkdir -p app/build/outputs/apk/release
+          
+          # 签名 APK
+          SIGNED_APK="app/build/outputs/apk/release/app-release-signed.apk"
+          
+          ${ANDROID_HOME}/build-tools/33.0.0/apksigner sign \
+            --ks "app/$STORE_FILE" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass pass:"$STORE_PASSWORD" \
+            --key-pass pass:"$KEY_PASSWORD" \
+            --out "$SIGNED_APK" \
+            "$UNSIGNED_APK"
+          
+          echo "APK signed successfully: $SIGNED_APK"
+          ls -lh app/build/outputs/apk/release/
 
-      - name: Upload APK
+      - name: Upload Signed APK
         uses: actions/upload-artifact@v4
         with:
           name: netguard-none-apk
-          path: app/build/outputs/apk/**/*.apk  # 关键修复：使用 ** 匹配所有子目录
+          path: app/build/outputs/apk/release/*-signed.apk
           retention-days: 30
+
+      - name: Cleanup Keystore
+        if: always()
+        run: |
+          # 从配置中提取文件名并删除
+          STORE_FILE=$(echo "${{ secrets.SIGNING_CONFIG }}" | grep -o 'storeFile=[^ ]*' | cut -d'=' -f2)
+          rm -f "app/$STORE_FILE"
 
       - name: Upload Build Reports
         if: failure()
@@ -98,3 +131,4 @@ jobs:
           name: build-reports
           path: app/build/reports/
           retention-days: 7
+
