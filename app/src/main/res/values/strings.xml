@@ -454,5 +454,10 @@ Your internet traffic is not being sent to a remote VPN server.</string>
     </string-array>
 
     <string name="label_dns_summary">%1$d entries • %2$d expired</string>
+<string name="appearance_auto">Auto</string>
+<string name="appearance_light">Light</string>
+<string name="appearance_dark">Dark</string>
+<string name="setting_update_result_none">No updates available</string>
+<string name="setting_update_result_error">Error checking for updates</string>
 
 </resources>
