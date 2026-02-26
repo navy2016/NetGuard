@@ -74,11 +74,21 @@ jobs:
             --no-daemon \
             --stacktrace
 
+      - name: Debug APK Output  # 调试步骤，确认路径
+        if: always()
+        run: |
+          echo "=== Current Directory ==="
+          pwd
+          echo "=== APK Output Directory Structure ==="
+          find app/build/outputs -type d 2>/dev/null | head -20 || echo "outputs dir not found"
+          echo "=== All APK Files ==="
+          find app/build -name "*.apk" -type f 2>/dev/null || echo "No APK found"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: netguard-none-apk
-          path: app/build/outputs/apk/release/*.apk
+          path: app/build/outputs/apk/**/*.apk  # 关键修复：使用 ** 匹配所有子目录
           retention-days: 30
 
       - name: Upload Build Reports
@@ -88,4 +98,3 @@ jobs:
           name: build-reports
           path: app/build/reports/
           retention-days: 7
-
