@@ -50,17 +50,26 @@ jobs:
           echo "=== Verification ==="
           grep -E "applicationId\s*=" app/build.gradle.kts || echo "WARNING: applicationId not found!"
 
-      # ✅ 关键修复：禁用 testOnly 标记
+      # ✅ 关键修复：增加 JVM 内存 + 禁用 testOnly 标记
       - name: Setup Gradle Properties
         run: |
           cat > gradle.properties << 'EOF'
+          # Gradle 性能优化
           org.gradle.caching=true
           org.gradle.parallel=true
           org.gradle.configureondemand=true
           org.gradle.daemon=false
+          
+          # ✅ 关键：增加 JVM 堆内存（解决 R8 OOM）
+          org.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8
+          
+          # Android 配置
           android.useAndroidX=true
           android.enableJetifier=true
           android.injected.testOnly=false
+          
+          # ✅ R8 内存优化
+          android.enableR8.fullMode=false
           EOF
           cat gradle.properties
 
@@ -73,16 +82,19 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # ✅ 确保构建 Release 版本
+      # ✅ 确保构建 Release 版本（优化内存参数）
       - name: Build Release APK
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          # ✅ 关键：为 Gradle 守护进程设置内存
+          GRADLE_OPTS: "-Xmx6g -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError"
         run: |
           ./gradlew :app:assembleRelease \
             -Pandroid.injected.build.abi=arm64-v8a,armeabi-v7a,x86,x86_64 \
             -x lintVitalRelease \
             --no-daemon \
-            --stacktrace
+            --stacktrace \
+            --max-workers=2
 
       - name: Prepare Signing Config
         run: |
