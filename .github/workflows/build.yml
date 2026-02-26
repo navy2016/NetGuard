@@ -40,58 +40,27 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
-      - name: Change Package Name
+      - name: Change Application ID Only
         run: |
-          # 修改build.gradle.kts中的包名
-          sed -i 's/namespace = "eu.faircode.netguard"/namespace = "eu.faircode.netguard.none"/g' app/build.gradle.kts
-          sed -i 's/applicationId = "eu.faircode.netguard"/applicationId = "eu.faircode.netguard.none"/g' app/build.gradle.kts
+          OLD_ID="eu.faircode.netguard"
+          NEW_ID="eu.faircode.netguard.none"
+          
+          # 只改 applicationId，不改 namespace
+          sed -i "s/applicationId = \"${OLD_ID}\"/applicationId = \"${NEW_ID}\"/g" app/build.gradle.kts
           
           # 验证修改
-          echo "Modified build.gradle.kts:"
-          grep -E "(namespace|applicationId)" app/build.gradle.kts | head -5
+          echo "=== Application ID ==="
+          grep "applicationId" app/build.gradle.kts
+          echo "=== Namespace (unchanged) ==="
+          grep "namespace" app/build.gradle.kts
 
-      - name: Fix Lint ExtraTranslation Errors
+      - name: Fix Lint Configuration
         run: |
-          # 禁用 ExtraTranslation lint 检查
-          sed -i '/disable.add("MissingTranslation")/a\        disable.add("ExtraTranslation")' app/build.gradle.kts
-          
-          # 验证修改
-          echo "Lint configuration:"
-          grep -A3 'lint {' app/build.gradle.kts
-
-      - name: Update Source Files Package References
-        run: |
-          # 查找并替换所有Java/Kotlin源文件中的包引用
-          find app/src -type f \( -name "*.kt" -o -name "*.java" -o -name "*.xml" \) -exec sed -i 's/eu\.faircode\.netguard/eu.faircode.netguard.none/g' {} +
-          
-          # 移动源文件目录结构
-          if [ -d "app/src/main/java/eu/faircode/netguard" ]; then
-            mkdir -p app/src/main/java/eu/faircode/netguard/none
-            cp -r app/src/main/java/eu/faircode/netguard/* app/src/main/java/eu/faircode/netguard/none/ 2>/dev/null || true
-            rm -rf app/src/main/java/eu/faircode/netguard
+          if grep -q "lint {" app/build.gradle.kts; then
+            sed -i '/disable.add("MissingTranslation")/a\        disable.add("ExtraTranslation")' app/build.gradle.kts
+          else
+            sed -i '/android {/a\    lint {\n        disable.add("MissingTranslation")\n        disable.add("ExtraTranslation")\n    }' app/build.gradle.kts
           fi
-          
-          # 处理其他source sets
-          for dir in app/src/*/java/eu/faircode/netguard; do
-            if [ -d "$dir" ]; then
-              newdir="${dir}/none"
-              mkdir -p "$newdir"
-              cp -r "$dir"/* "$newdir/" 2>/dev/null || true
-              rm -rf "$dir"
-              echo "Processed: $dir -> $newdir"
-            fi
-          done
-
-      - name: Update AndroidManifest.xml References
-        run: |
-          if [ -f "app/src/main/AndroidManifest.xml" ]; then
-            sed -i 's/eu\.faircode\.netguard/eu.faircode.netguard.none/g' app/src/main/AndroidManifest.xml
-            echo "Updated AndroidManifest.xml"
-          fi
-
-      - name: Update Resource References
-        run: |
-          find app/src -type f -name "*.xml" -exec sed -i 's/eu\.faircode\.netguard/eu.faircode.netguard.none/g' {} +
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -119,3 +88,4 @@ jobs:
           name: build-reports
           path: app/build/reports/
           retention-days: 7
+
