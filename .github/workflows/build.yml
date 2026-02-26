@@ -7,6 +7,10 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+env:
+  OLD_PACKAGE: "eu.faircode.netguard"
+  NEW_PACKAGE: "eu.faircode.netguard.none"
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -30,35 +34,41 @@ jobs:
           ndk-version: r25c
           link-to-sdk: true
 
-      - name: Cache Gradle dependencies
-        uses: actions/cache@v4
+      # ✅ 使用官方 Gradle Action 替代手动缓存
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+          gradle-home-cache-cleanup: true
+          build-scan-publish: true
+          build-scan-terms-of-use-url: "https://gradle.com/help/legal-terms-of-use"
+          build-scan-terms-of-use-agree: "yes"
 
       - name: Change Application ID Only
         run: |
-          OLD_ID="eu.faircode.netguard"
-          NEW_ID="eu.faircode.netguard.none"
+          # 更精确的替换，避免误伤其他包含该字符串的地方
+          sed -i "s/applicationId = \"${{ env.OLD_PACKAGE }}\"/applicationId = \"${{ env.NEW_PACKAGE }}\"/g" app/build.gradle.kts
           
-          sed -i "s/applicationId = \"${OLD_ID}\"/applicationId = \"${NEW_ID}\"/g" app/build.gradle.kts
-          
-          echo "=== Application ID ==="
-          grep "applicationId" app/build.gradle.kts
-          echo "=== Namespace (unchanged) ==="
-          grep "namespace" app/build.gradle.kts
+          echo "=== Verification ==="
+          echo "Application ID:"
+          grep -E "applicationId\s*=" app/build.gradle.kts || echo "WARNING: applicationId not found!"
+          echo "Namespace (should remain unchanged):"
+          grep -E "namespace\s*=" app/build.gradle.kts || echo "WARNING: namespace not found!"
 
-      - name: Fix Lint Configuration
+      - name: Setup Gradle Properties
         run: |
-          if grep -q "lint {" app/build.gradle.kts; then
-            sed -i '/disable.add("MissingTranslation")/a\        disable.add("ExtraTranslation")' app/build.gradle.kts
-          else
-            sed -i '/android {/a\    lint {\n        disable.add("MissingTranslation")\n        disable.add("ExtraTranslation")\n    }' app/build.gradle.kts
-          fi
+          # 使用 gradle.properties 配置 lint 和构建优化，而非修改 build.gradle.kts
+          cat >> gradle.properties << 'EOF'
+          
+          # CI 优化配置
+          org.gradle.caching=true
+          org.gradle.parallel=true
+          org.gradle.configureondemand=true
+          org.gradle.daemon=false
+          
+          # Lint 配置
+          android.lint.suppressMissingTranslation=true
+          android.lint.suppressExtraTranslation=true
+          EOF
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -69,56 +79,83 @@ jobs:
         run: |
           ./gradlew :app:assembleRelease \
             -Pandroid.injected.build.abi=arm64-v8a,armeabi-v7a,x86,x86_64 \
+            --build-cache \
             --no-daemon \
             --stacktrace
 
-      - name: Parse Signing Config & Sign APK
+      - name: Setup Signing
+        id: signing
         run: |
-          # 解析 SIGNING_CONFIG
+          # 更安全的密钥解析方式
           CONFIG="${{ secrets.SIGNING_CONFIG }}"
           
-          # 提取各字段
-          STORE_FILE=$(echo "$CONFIG" | grep -o 'storeFile=[^ ]*' | cut -d'=' -f2)
-          STORE_PASSWORD=$(echo "$CONFIG" | grep -o 'storePassword="[^"]*"' | cut -d'"' -f2)
-          KEY_ALIAS=$(echo "$CONFIG" | grep -o 'keyAlias=[^ ]*' | cut -d'=' -f2)
-          KEY_PASSWORD=$(echo "$CONFIG" | grep -o 'keyPassword="[^"]*"' | cut -d'"' -f2)
+          # 使用 awk 进行更健壮的解析
+          STORE_FILE=$(echo "$CONFIG" | awk -F'=' '/^storeFile=/ {print $2}' | tr -d ' ')
+          STORE_PASSWORD=$(echo "$CONFIG" | awk -F'"' '/storePassword=/ {print $2}')
+          KEY_ALIAS=$(echo "$CONFIG" | awk -F'=' '/^keyAlias=/ {print $2}' | tr -d ' ')
+          KEY_PASSWORD=$(echo "$CONFIG" | awk -F'"' '/keyPassword=/ {print $2}')
+          
+          # 验证必要字段
+          if [ -z "$STORE_FILE" ] || [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "Error: Missing required signing configuration"
+            echo "storeFile: ${STORE_FILE:-MISSING}"
+            echo "keyAlias: ${KEY_ALIAS:-MISSING}"
+            exit 1
+          fi
+          
+          echo "store_file=$STORE_FILE" >> $GITHUB_OUTPUT
+          echo "store_password=$STORE_PASSWORD" >> $GITHUB_OUTPUT
+          echo "key_alias=$KEY_ALIAS" >> $GITHUB_OUTPUT
+          echo "key_password=$KEY_PASSWORD" >> $GITHUB_OUTPUT
           
           echo "Store file: $STORE_FILE"
           echo "Key alias: $KEY_ALIAS"
-          
-          # 解码密钥文件
-          echo "${{ secrets.KEY_BASE64 }}" | base64 -d > "app/$STORE_FILE"
-          
+
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.KEY_BASE64 }}" | base64 -d > "app/${{ steps.signing.outputs.store_file }}"
+          ls -la "app/${{ steps.signing.outputs.store_file }}"
+
+      - name: Sign APK
+        run: |
           # 找到未签名 APK
           UNSIGNED_APK=$(find app/build -name "*-unsigned.apk" -type f | head -1)
+          if [ -z "$UNSIGNED_APK" ]; then
+            echo "Error: Unsigned APK not found"
+            find app/build -name "*.apk" -type f
+            exit 1
+          fi
           echo "Found unsigned APK: $UNSIGNED_APK"
           
           # 创建输出目录
           mkdir -p app/build/outputs/apk/release
-          
-          # 查找 apksigner
-          APK_SIGNER=$(find ${ANDROID_HOME}/build-tools -name "apksigner" -type f | sort -V | tail -1)
-          if [ -z "$APK_SIGNER" ]; then
-            echo "Error: apksigner not found"
-            exit 1
-          fi
-          echo "Using apksigner: $APK_SIGNER"
-          
-          # 签名 APK
           SIGNED_APK="app/build/outputs/apk/release/app-release-signed.apk"
           
+          # 使用 apksigner 的完整路径（Android SDK 标准路径）
+          BUILD_TOOLS_VERSION=$(ls -1 ${ANDROID_HOME}/build-tools/ | sort -V | tail -1)
+          APK_SIGNER="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}/apksigner"
+          
+          if [ ! -f "$APK_SIGNER" ]; then
+            echo "Error: apksigner not found at $APK_SIGNER"
+            exit 1
+          fi
+          echo "Using apksigner: $APK_SIGNER (version $BUILD_TOOLS_VERSION)"
+          
+          # 签名 APK，启用 v2+v3 签名方案
           "$APK_SIGNER" sign \
-            --ks "app/$STORE_FILE" \
-            --ks-key-alias "$KEY_ALIAS" \
-            --ks-pass pass:"$STORE_PASSWORD" \
-            --key-pass pass:"$KEY_PASSWORD" \
+            --ks "app/${{ steps.signing.outputs.store_file }}" \
+            --ks-key-alias "${{ steps.signing.outputs.key_alias }}" \
+            --ks-pass pass:"${{ steps.signing.outputs.store_password }}" \
+            --key-pass pass:"${{ steps.signing.outputs.key_password }}" \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
             --out "$SIGNED_APK" \
             "$UNSIGNED_APK"
           
           # 验证签名
-          "$APK_SIGNER" verify -v "$SIGNED_APK"
+          "$APK_SIGNER" verify -v --print-certs "$SIGNED_APK"
           
-          echo "APK signed successfully: $SIGNED_APK"
+          echo "✅ APK signed successfully"
           ls -lh app/build/outputs/apk/release/
 
       - name: Upload Signed APK
@@ -131,13 +168,15 @@ jobs:
       - name: Cleanup Keystore
         if: always()
         run: |
-          STORE_FILE=$(echo "${{ secrets.SIGNING_CONFIG }}" | grep -o 'storeFile=[^ ]*' | cut -d'=' -f2)
-          rm -f "app/$STORE_FILE"
+          rm -f "app/${{ steps.signing.outputs.store_file }}"
+          echo "Keystore cleaned up"
 
       - name: Upload Build Reports
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-reports
-          path: app/build/reports/
+          path: |
+            app/build/reports/
+            app/build/outputs/logs/
           retention-days: 7
