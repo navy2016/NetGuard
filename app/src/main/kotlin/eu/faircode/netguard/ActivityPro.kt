@@ -11,12 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -36,7 +31,7 @@ class ActivityPro : ComponentActivity() {
 
         setContent {
             NetGuardThemeFromPrefs {
-                ProScreen()
+                ProContent()
             }
         }
     }
@@ -48,32 +43,35 @@ class ActivityPro : ComponentActivity() {
 
     companion object {
         private const val TAG = "NetGuard.Pro"
+
+        // ========== SKU 常量（其他模块引用这些值，必须保留） ==========
+        const val SKU_LOG = "log"
+        const val SKU_FILTER = "filter"
+        const val SKU_NOTIFY = "notify"
+        const val SKU_SPEED = "speed"
+        const val SKU_THEME = "theme"
+        const val SKU_PRO1 = "pro1"
+        const val SKU_SUPPORT1 = "support1"
+        const val SKU_SUPPORT2 = "support2"
+        const val SKU_DONATION = "donation"
+        // ==============================================================
     }
 }
 
-// ============================================================
-// Composable UI
-// ============================================================
-
-private const val CARD_BACKGROUND_ALPHA = 0.3f
-
-private data class ProFeature(
-    val titleRes: Int,
-    val descriptionRes: Int,
-)
-
-private val proFeatures = listOf(
-    ProFeature(R.string.title_pro_log, R.string.msg_pro_log),
-    ProFeature(R.string.title_pro_filter, R.string.msg_pro_filter),
-    ProFeature(R.string.title_pro_notify, R.string.msg_pro_notify),
-    ProFeature(R.string.title_pro_speed, R.string.msg_pro_speed),
-    ProFeature(R.string.title_pro_theme, R.string.msg_pro_theme),
-    ProFeature(R.string.title_pro_all, R.string.msg_pro_all),
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProScreen() {
+private fun ProContent() {
+    val items = listOf(
+        ProItem(ActivityPro.SKU_LOG, R.string.title_pro_log),
+        ProItem(ActivityPro.SKU_FILTER, R.string.title_pro_filter),
+        ProItem(ActivityPro.SKU_NOTIFY, R.string.title_pro_notify),
+        ProItem(ActivityPro.SKU_SPEED, R.string.title_pro_speed),
+        ProItem(ActivityPro.SKU_THEME, R.string.title_pro_theme),
+        ProItem(ActivityPro.SKU_PRO1, R.string.title_pro_all),
+        ProItem(ActivityPro.SKU_SUPPORT1, R.string.title_pro_dev),
+        ProItem(ActivityPro.SKU_SUPPORT2, R.string.title_pro_dev),
+    )
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -88,70 +86,38 @@ fun ProScreen() {
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // 功能已全部开放的说明
             Text(
-                text = stringResource(R.string.title_pro_description_enabled),
+                text = stringResource(R.string.title_pro_description),
                 style = MaterialTheme.typography.bodyMedium,
             )
 
-            // Pro 功能卡片列表
-            proFeatures.forEach { feature ->
-                ProFeatureCard(
-                    title = stringResource(feature.titleRes),
-                    description = stringResource(feature.descriptionRes),
+            items.forEach { item ->
+                ProRow(
+                    title = stringResource(item.titleRes),
                 )
             }
-
-            // 支持开发者部分
-            Text(
-                text = stringResource(R.string.title_pro_support),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = 16.dp),
-            )
-            Text(
-                text = stringResource(R.string.msg_pro_support),
-                style = MaterialTheme.typography.bodyMedium,
-            )
         }
     }
 }
 
 @Composable
-private fun ProFeatureCard(
+private fun ProRow(
     title: String,
-    description: String,
 ) {
-    Card(
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-                .copy(alpha = CARD_BACKGROUND_ALPHA),
-        ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Text(text = title, style = MaterialTheme.typography.bodyLarge)
+        Text(
+            text = stringResource(R.string.title_pro_bought),
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 }
+
+private data class ProItem(
+    val sku: String,
+    val titleRes: Int,
+)
