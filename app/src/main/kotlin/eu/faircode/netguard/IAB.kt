@@ -1,43 +1,51 @@
 package eu.faircode.netguard
 
+import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
+import android.os.Bundle
+import android.os.IBinder
 import android.util.Log
 
 /**
- * IAB - 应用内购买模块（已移除）
+ * IAB - 应用内购买模块（已移除购买逻辑）
  * 所有 Pro 功能默认开放，不再依赖 Google Play 计费服务。
+ * 保留原有签名，调用方无需修改。
  * 修改日期: 2026-02-27
- *
- * 保留原有构造函数签名和公开方法签名，确保调用方无需修改。
- * 内部实现已清空，不再连接 Google Play 服务。
  */
 class IAB(
     private val delegate: Delegate,
     context: Context,
-) {
-    // 保留字段签名，但不再使用
+) : ServiceConnection {
     @Suppress("unused")
     private val context: Context = context.applicationContext
+    private var service: IBinder? = null
 
     interface Delegate {
         fun onReady(iab: IAB)
     }
 
-    /**
-     * 原逻辑：绑定 Google Play 计费服务
-     * 现逻辑：跳过绑定，直接回调 onReady
-     */
     fun bind() {
         Log.i(TAG, "Bind - skipped (purchases removed)")
         delegate.onReady(this)
     }
 
-    /**
-     * 原逻辑：解绑 Google Play 计费服务
-     * 现逻辑：无操作
-     */
     fun unbind() {
         Log.i(TAG, "Unbind - skipped (purchases removed)")
+        service = null
+    }
+
+    override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+        Log.i(TAG, "Connected (unused)")
+        service = binder
+        delegate.onReady(this)
+    }
+
+    override fun onServiceDisconnected(name: ComponentName) {
+        Log.i(TAG, "Disconnected (unused)")
+        service = null
     }
 
     fun isAvailable(sku: String): Boolean {
@@ -49,7 +57,7 @@ class IAB(
         Log.i(TAG, "updatePurchases - skipped (purchases removed)")
     }
 
-    fun getBuyIntent(sku: String, isDonation: Boolean): android.app.PendingIntent? {
+    fun getBuyIntent(sku: String, isDonation: Boolean): PendingIntent? {
         Log.i(TAG, "getBuyIntent $sku - returns null (purchases removed)")
         return null
     }
