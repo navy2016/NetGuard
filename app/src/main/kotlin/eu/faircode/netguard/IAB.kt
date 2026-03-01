@@ -53,68 +53,23 @@ class IAB(
 
     @Throws(RemoteException::class, JSONException::class)
     fun isAvailable(sku: String): Boolean {
-        val skuList = ArrayList<String>()
-        skuList.add(sku)
-        val query = Bundle()
-        query.putStringArrayList("ITEM_ID_LIST", skuList)
-        val bundle = service?.getSkuDetails(IAB_VERSION, context.packageName, "inapp", query)
-        Log.i(TAG, "getSkuDetails")
-        Util.logBundle(bundle)
-        val response = bundle?.getInt("RESPONSE_CODE", -1) ?: -1
-        Log.i(TAG, "Response=" + getResult(response))
-        if (response != 0) throw IllegalArgumentException(getResult(response))
-
-        var found = false
-        val details = bundle?.getStringArrayList("DETAILS_LIST")
-        if (details != null) {
-            for (item in details) {
-                val obj = JSONObject(item)
-                if (sku == obj.getString("productId")) {
-                    found = true
-                    break
-                }
-            }
-        }
-        Log.i(TAG, "$sku=$found")
-        return found
+        // 开放所有功能，不再检查商品可用性
+        Log.i(TAG, "isAvailable $sku - always true (purchases removed)")
+        return true
     }
 
     @Throws(RemoteException::class)
     fun updatePurchases() {
-        val bundle = service?.getPurchases(IAB_VERSION, context.packageName, "inapp", null)
-        Log.i(TAG, "getPurchases")
-        Util.logBundle(bundle)
-        val response = bundle?.getInt("RESPONSE_CODE", -1) ?: -1
-        Log.i(TAG, "Response=" + getResult(response))
-        if (response != 0) throw IllegalArgumentException(getResult(response))
-
-        val list = bundle?.getStringArrayList("INAPP_PURCHASE_DATA_LIST") ?: arrayListOf()
-        for (item in list) {
-            try {
-                val obj = JSONObject(item)
-                val product = obj.getString("productId")
-                if (ActivityPro.SKU_DONATION != product) {
-                    setBought(product, context)
-                }
-            } catch (ex: Throwable) {
-                Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
-            }
-        }
+        // 已移除购买功能，跳过购买更新
+        Log.i(TAG, "updatePurchases - skipped (purchases removed)")
     }
 
     @Suppress("DEPRECATION")
     @Throws(RemoteException::class)
     fun getBuyIntent(sku: String, isDonation: Boolean): PendingIntent? {
-        val bundle = service?.getBuyIntent(IAB_VERSION, context.packageName, sku, "inapp", "")
-        Log.i(TAG, "getBuyIntent")
-        Util.logBundle(bundle)
-        val response = bundle?.getInt("RESPONSE_CODE", -1) ?: -1
-        Log.i(TAG, "Response=" + getResult(response))
-        if (response != 0) throw IllegalArgumentException(getResult(response))
-
-        val intent = bundle?.getParcelable("BUY_INTENT") as PendingIntent?
-        if (isDonation) setBought(ActivityPro.SKU_DONATION, context)
-        return intent
+        // 已移除购买功能，返回null
+        Log.i(TAG, "getBuyIntent $sku - returns null (purchases removed)")
+        return null
     }
 
     companion object {
@@ -122,50 +77,27 @@ class IAB(
         private const val IAB_VERSION = 3
 
         fun setBought(sku: String, context: Context) {
-            Log.i(TAG, "Bought $sku")
-            Prefs.putBoolean(Prefs.namespaced("IAB", sku), true)
+            Log.i(TAG, "Bought $sku (ignored - purchases removed)")
         }
 
+        /**
+         * 开放所有专业功能 - 不再检查购买状态
+         * 修改日期: 2026-02-27
+         */
         fun isPurchased(sku: String, context: Context): Boolean {
-            return try {
-                if (Util.isDebuggable(context)) {
-                    return !Prefs.getBoolean("debug_iab", false)
-                }
-
-                if (ActivityPro.SKU_SUPPORT1 == sku || ActivityPro.SKU_SUPPORT2 == sku) {
-                    return Prefs.getBoolean(Prefs.namespaced("IAB", sku), false)
-                }
-
-                Prefs.getBoolean(Prefs.namespaced("IAB", sku), false) ||
-                        Prefs.getBoolean(Prefs.namespaced("IAB", ActivityPro.SKU_PRO1), false) ||
-                        Prefs.getBoolean(
-                            Prefs.namespaced("IAB", ActivityPro.SKU_SUPPORT1),
-                            false
-                        ) ||
-                        Prefs.getBoolean(
-                            Prefs.namespaced("IAB", ActivityPro.SKU_SUPPORT2),
-                            false
-                        ) ||
-                        Prefs.getBoolean(Prefs.namespaced("IAB", ActivityPro.SKU_DONATION), false)
-            } catch (ignored: SecurityException) {
-                false
-            }
+            // 所有功能默认开放
+            Log.i(TAG, "isPurchased $sku - returning true (purchases removed)")
+            return true
         }
 
+        /**
+         * 开放所有专业功能 - 不再检查购买状态
+         * 修改日期: 2026-02-27
+         */
         fun isPurchasedAny(context: Context): Boolean {
-            return try {
-                if (Util.isDebuggable(context)) {
-                    return !Prefs.getBoolean("debug_iab", false)
-                }
-
-                val prefix = "IAB"
-                for (key in Prefs.keysWithPrefix(prefix)) {
-                    if (Prefs.getBoolean(key, false)) return true
-                }
-                false
-            } catch (ignored: SecurityException) {
-                false
-            }
+            // 所有功能默认开放
+            Log.i(TAG, "isPurchasedAny - returning true (purchases removed)")
+            return true
         }
 
         private fun getResult(response: Int): String {
