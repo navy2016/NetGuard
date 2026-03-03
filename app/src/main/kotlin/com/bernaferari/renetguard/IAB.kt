@@ -127,11 +127,11 @@ class IAB(
         }
 
         fun isPurchased(sku: String, context: Context): Boolean {
-            return ture
+            return true
         }
 
         fun isPurchasedAny(context: Context): Boolean {
-            return ture
+            return true
         }
 
         private fun getResult(response: Int): String {
